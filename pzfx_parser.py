@@ -39,54 +39,65 @@ def _subcolumn_to_numpy(subcolumn, ns):
 
 
 def _parse_xy_table(table, ns):
-    xformat = table.attrib['XFormat']
     try:
-        yformat = table.attrib['YFormat']
-    except KeyError:
-        yformat = None
-    evformat = table.attrib['EVFormat']
-
-    xscounter = count()
-    xsubcolumn_names = lambda: str(next(xscounter))
-    if yformat == 'SEN':
-        yslist = cycle(['Mean', 'SEM', 'N'])
-        ysubcolumn_names = lambda: next(yslist)
-    elif yformat == 'upper-lower-limits':
-        yslist = cycle(['Mean', 'Lower', 'Upper'])
-        ysubcolumn_names = lambda: next(yslist)
-    else:
-        yscounter = count()
-        ysubcolumn_names = lambda: str(next(yscounter))
-
-    index = None
-    for row_titles in table.findall('RowTitlesColumn', ns):
-        for subcolumn in row_titles.findall('Subcolumn', ns):
-            titles = []
-            for d in subcolumn.findall('d', ns):
-                titles.append(_get_all_text(d))
-            index = pd.Index(titles)
-
-    columns = {}
-    for xcolumn in chain(table.findall('XColumn', ns), table.findall('XAdvancedColumn', ns)):
-        xcolumn_name = _get_all_text(xcolumn.find('Title', ns))
-        for subcolumn in xcolumn.findall('Subcolumn', ns):
-            subcolumn_name = xcolumn_name + '_' + xsubcolumn_names()
-            columns[subcolumn_name] = _subcolumn_to_numpy(subcolumn, ns)
-    for ycolumn in chain(table.findall('YColumn', ns), table.findall('YAdvancedColumn', ns)):
-        ycolumn_name = _get_all_text(ycolumn.find('Title', ns))
-        for subcolumn in ycolumn.findall('Subcolumn', ns):
-            subcolumn_name = ycolumn_name + '_' + ysubcolumn_names()
-            columns[subcolumn_name] = _subcolumn_to_numpy(subcolumn, ns)
-
-    maxlength = max([v.shape[0] if v.shape != () else 0 for v in columns.values()])
-    for k, v in columns.items():
-        if v.shape != ():
-            if v.shape[0] < maxlength:
-                columns[k] = np.pad(v, (0, maxlength - v.shape[0]), mode='constant', constant_values=np.nan)
+        xformat = table.attrib['XFormat']
+        try:
+            yformat = table.attrib['YFormat']
+        except KeyError:
+            yformat = None
+        evformat = table.attrib['EVFormat']
+    
+        xscounter = count()
+        xsubcolumn_names = lambda: str(next(xscounter))
+        if yformat == 'SEN':
+            yslist = cycle(['Mean', 'SEM', 'N'])
+            ysubcolumn_names = lambda: next(yslist)
+        elif yformat == 'upper-lower-limits':
+            yslist = cycle(['Mean', 'Lower', 'Upper'])
+            ysubcolumn_names = lambda: next(yslist)
         else:
-            columns[k] = np.pad(v, (0, maxlength - 0), mode='constant', constant_values=np.nan)
+            yscounter = count()
+            ysubcolumn_names = lambda: str(next(yscounter))
+    
+        index = None
+        for row_titles in table.findall('RowTitlesColumn', ns):
+            for subcolumn in row_titles.findall('Subcolumn', ns):
+                titles = []
+                for idx,d in enumerate(subcolumn.findall('d', ns)):
+                    _d = _get_all_text(d)
+                    if len(_d) == 0:
+                        _d = f'_{idx}'
+                        titles.append(_d)
+                index = titles
+    
+        columns = {}
+        for xcolumn in chain(table.findall('XColumn', ns), table.findall('XAdvancedColumn', ns)):
+            xcolumn_name = _get_all_text(xcolumn.find('Title', ns))
+            for subcolumn in xcolumn.findall('Subcolumn', ns):
+                subcolumn_name = xcolumn_name + '_' + xsubcolumn_names()
+                columns[subcolumn_name] = _subcolumn_to_numpy(subcolumn, ns)
+        for ycolumn in chain(table.findall('YColumn', ns), table.findall('YAdvancedColumn', ns)):
+            ycolumn_name = _get_all_text(ycolumn.find('Title', ns))
+            for subcolumn in ycolumn.findall('Subcolumn', ns):
+                subcolumn_name = ycolumn_name + '_' + ysubcolumn_names()
+                columns[subcolumn_name] = _subcolumn_to_numpy(subcolumn, ns)
+    
+        maxlength = max([v.shape[0] if v.shape != () else 0 for v in columns.values()])
+        for k, v in columns.items():
+            if v.shape != ():
+                if v.shape[0] < maxlength:
+                    columns[k] = np.pad(v, (0, maxlength - v.shape[0]), mode='constant', constant_values=np.nan)
+            else:
+                columns[k] = np.pad(v, (0, maxlength - 0), mode='constant', constant_values=np.nan)
+        ## rwu        
+        _df = pd.DataFrame(columns)
+        if index is not None: # then must be a list, extend it to match the df shape
+            index.extend( [f'_{i}' for i in range(len(index), _df.shape[0] )]  )
+            _df.index = index
+    except Exception as e:
+        _df = pd.DataFrame([['Error message',e]])
+    return _df
 
-    return pd.DataFrame(columns, index=index)
 
 
 def _parse_table_to_dataframe(table, ns):
